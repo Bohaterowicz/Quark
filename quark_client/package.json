@@ -9,5 +9,6 @@
   "scripts": {
     "start": "snowpack dev",
     "build": "snowpack build"
-  }
+  },
+  "proxy": "http://localhost:1234/"
 }
