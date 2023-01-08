@@ -10,3 +10,4 @@ actix-rt = "2.7.0"
 actix-web = "4.2.1"
 actix-cors = "0.6.4"
 serde = { version = "1.0.152", features = ["derive"]}
+sqlite = "0.30.3"
