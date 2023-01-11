@@ -1,4 +1,4 @@
-import React, {useState} from "react";
+import React from "react";
 
 function CreatePost(name, text) {
     var post =
@@ -20,30 +20,21 @@ function CreatePost(name, text) {
     return post
 }
 
-function PostList() {
-    const [postsState, setPostsState] = useState("loading...");
-    const [isUpdated, setIsUpdated] = useState(false);
-
-    if(!isUpdated){
-        fetch("http://127.0.0.1:1234/posts")
-        .then(response => response.json())
-        .then(data => { 
-            setIsUpdated(true);
-            let posts = [];
-            const userPosts = data.posts
-            for(let i = 0; i < userPosts.length; i++) {
-                const post = CreatePost(userPosts[i].name, userPosts[i].text)
-                posts.push(post);
-            }
-            setPostsState(posts);
-        });
+function PostList(props) {
+    const posts = props.posts
+    if(posts.length == 0) {
+        return <p>Loading...</p>
     }
-
-    return (
-        <div id="postList">
-            {postsState}
-        </div>
-    )
+    else {
+        const postElements = []
+        for(let i = 0; i < posts.length; i++){
+            const postElement = CreatePost(posts[i].username, posts[i].post_content)
+            postElements.push(postElement)
+        }
+        return (
+            <div id="postList"> {postElements} </div>
+        )
+    }
 }
 
 export default PostList;
