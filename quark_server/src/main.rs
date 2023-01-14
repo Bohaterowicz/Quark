@@ -2,10 +2,10 @@
 extern crate actix_web;
 
 use std::io;
-use actix_web::{http::header, web::{self}, App, HttpServer, HttpResponse, HttpRequest};
+use actix_web::{http::header, web::{self}, App, HttpServer, HttpResponse, HttpRequest, FromRequest, error::HttpError};
 use actix_cors::Cors;
 use serde::{Serialize, Deserialize};
-use sqlite::Statement;
+use sqlite::{Statement, Connection};
 
 #[derive(Deserialize)]
 struct QuarkPostPrototype {
@@ -32,6 +32,10 @@ struct PostQuarkPostResponse {
 struct QuarkPostsResponse {
     posts: Vec<QuarkPost>,
 }
+#[derive(Serialize)]
+struct PeekQuarkPostsResponse {
+    count: i64,
+}
 
 #[derive(Deserialize)]
 struct GetQuarkPostsQuery {
@@ -40,9 +44,73 @@ struct GetQuarkPostsQuery {
     new_post_request_count: i32,
 }
 
+#[derive(Deserialize)]
+struct GetNewQuarkPostsId {
+    id: i64,
+}
+
+#[derive(Deserialize)]
+struct  PeekNewQuarkPostsId {
+    id: i64,
+}
+
 #[get("/")]
 async fn index() -> HttpResponse {
     HttpResponse::Ok().insert_header(header::ContentEncoding::Identity).body("OK")
+}
+
+#[get("/posts/new/peek")]
+async fn peek_new_quark_posts(req: HttpRequest) -> HttpResponse {
+    let query_params = 
+        web::Query::<PeekNewQuarkPostsId>::from_query(req.query_string()).unwrap();
+
+    let connection = sqlite::open("quark.db").unwrap();
+    let most_recent_id = query_params.id;
+    let query = "SELECT COUNT(id) as count from posts WHERE id > :most_recent_id";
+    let mut statement = connection.prepare(query).unwrap();
+    statement.bind((":most_recent_id", most_recent_id)).unwrap();
+
+    let mut response = PeekQuarkPostsResponse{
+        count: 0
+    };
+
+    while let Ok(sqlite::State::Row) = statement.next() {
+        response.count = statement.read::<i64, _>("count").unwrap();
+    }
+
+    HttpResponse::Ok().json(response)
+
+}
+
+#[get("/posts/new")]
+async fn get_new_quark_posts(req: HttpRequest) -> HttpResponse {
+    let query_params =
+        web::Query::<GetNewQuarkPostsId>::from_query(req.query_string()).unwrap();
+
+    let connection = sqlite::open("quark.db").unwrap();    
+    let most_recent_id = query_params.id;
+    let query = "SELECT * FROM posts WHERE id > :most_recent_id ORDER BY id DESC;";
+    let mut statement = connection.prepare(query).unwrap();
+    statement.bind((":most_recent_id", most_recent_id)).unwrap();
+
+    let mut quark_posts = Vec::new();
+
+    while let Ok(sqlite::State::Row) = statement.next() {
+        let post = QuarkPost {
+            id: statement.read::<i64, _>("id").unwrap(),
+            username: statement.read::<String, _>("username").unwrap(),
+            post_content: statement.read::<String, _>("post_content").unwrap(),
+            post_attachments: statement.read::<String, _>("post_attachments").unwrap(),
+            post_time: statement.read::<String, _>("post_time").unwrap(),
+        };
+        quark_posts.push(post);
+    }
+
+    let response = QuarkPostsResponse{
+        posts: quark_posts,
+    };
+
+    HttpResponse::Ok().json(response)
 }
 
 #[get("/posts")]
@@ -96,16 +164,16 @@ async fn add_quark_post(post: web::Json<QuarkPostPrototype>) -> HttpResponse {
     let post: QuarkPostPrototype = post.into_inner();
 
     match insert_into_posts_table(&connection, &vec![post]) {
-        Ok(_) => {}
+        Ok(new_post) => {
+            return HttpResponse::Ok().json(new_post);
+        }
         Err(e) => {
             return HttpResponse::InternalServerError().body(format!("Error when inserting new post: {}", e));
         }
     }
-
-    HttpResponse::Ok().finish()
 }
 
-fn insert_into_posts_table(connection: & sqlite::Connection, posts: &Vec<QuarkPostPrototype>) -> Result<(), sqlite::Error> {
+fn insert_into_posts_table(connection: & sqlite::Connection, posts: &Vec<QuarkPostPrototype>) -> Result<QuarkPost, sqlite::Error> {
     
     fn create_insert_values(posts: &Vec<QuarkPostPrototype>) -> String {
         let mut result = String::new();
@@ -123,7 +191,22 @@ fn insert_into_posts_table(connection: & sqlite::Connection, posts: &Vec<QuarkPo
     let insert_values = create_insert_values(&posts);
     let query = format!("INSERT INTO posts(username, post_time, post_content, post_attachments) VALUES {}", insert_values);
     connection.execute(query)?;
-    Ok(())
+
+    let query = "SELECT * FROM posts ORDER BY id DESC LIMIT 1";
+    let mut statement = connection.prepare(query)?;
+
+    while let Ok(sqlite::State::Row) = statement.next() {
+        let post = QuarkPost {
+            id: statement.read::<i64, _>("id").unwrap(),
+            username: statement.read::<String, _>("username").unwrap(),
+            post_content: statement.read::<String, _>("post_content").unwrap(),
+            post_attachments: statement.read::<String, _>("post_attachments").unwrap(),
+            post_time: statement.read::<String, _>("post_time").unwrap(),
+        };
+        return Ok(post);
+    }
+
+    Err(sqlite::Error{code: Some(-1), message: Some("failure".to_string())})
 }
 
 fn create_posts_table(connection: & sqlite::Connection) -> Result<(), sqlite::Error> {
@@ -204,6 +287,8 @@ async fn main() -> io::Result<()> {
         .service(index)
         .service(get_quark_posts)
         .service(add_quark_post)
+        .service(get_new_quark_posts)
+        .service(peek_new_quark_posts)
     })
     .bind(("127.0.0.1", 1234))?
     .run()

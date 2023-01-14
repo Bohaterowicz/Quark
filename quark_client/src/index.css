@@ -86,6 +86,21 @@ body {
 }
 
 #postList {
-    margin-top: 20px;
+    margin-top: 10px;
 }
+
+#new_post_notifier {
+    background-color: #7d7800;
+    margin-top: 8px;
+    display: flex;
+    flex-direction: row;
+    padding: 10px;
+    border-radius: 2px;
+    box-shadow: 0 0 2px 1px #0a0;
+    cursor: pointer;
+  }
+
+  #new_post_notifier_text {
+    color: #0f0;
+  }
 
